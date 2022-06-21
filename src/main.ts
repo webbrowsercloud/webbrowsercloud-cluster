@@ -4,19 +4,54 @@ import 'dotenv/config';
 import { asyncWsHandler } from './utils/asyncWsHandler';
 import { IncomingMessage } from 'http';
 import { Socket } from 'net';
+import { WorkerService } from './app/core/service/worker.service';
+import { createProxyServer } from 'http-proxy';
+import { ServerResponse } from 'http';
 
 async function bootstrap() {
   const app = await NestFactory.create(CoreModule);
 
-  await app.listen(process.env.PROT || 3000, () => {
+  await app.listen(process.env.PROT || 3000, async () => {
     const server = app.getHttpServer();
+
+    const workerService = app.get(WorkerService);
+
+    // 刷新一下工人列表
+    await workerService.refreshWorkerList();
+
+    setInterval(() => workerService.refreshWorkerList(), 3000);
+
+    const proxy = createProxyServer();
+
+    proxy.on('error', (err, _req, res) => {
+      if (res instanceof ServerResponse) {
+        res.writeHead && res.writeHead(500, { 'Content-Type': 'text/plain' });
+
+        console.log(`Issue communicating with Chrome: "${err.message}"`);
+        res.end(`Issue communicating with Chrome`);
+      }
+    });
 
     server.on(
       'upgrade',
       asyncWsHandler(
         async (req: IncomingMessage, socket: Socket, head: Buffer) => {
           // 分配一个可用的浏览器入口
-          console.log('upgrade----------------');
+          const worker = await workerService.dispatchWorker();
+
+          if (!worker) {
+            socket.destroy();
+            console.log('browserless busy!');
+            return 'browserless busy!';
+          }
+
+          console.log(worker);
+
+          proxy.ws(req, socket, head, {
+            target: `ws://${worker.ip}:3000`,
+            changeOrigin: true,
+            toProxy: true,
+          });
         },
       ),
     );

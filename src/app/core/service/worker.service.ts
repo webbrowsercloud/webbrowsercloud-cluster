@@ -4,7 +4,7 @@ import { Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { K8S_CLIENT } from '../providers/k8s-client.provider';
 import { Promise } from 'bluebird';
-import { meanBy, omit, sumBy } from 'lodash';
+import { meanBy, omit, sumBy, minBy, sortBy } from 'lodash';
 import axios from 'axios';
 import { Logger } from '@nest-boot/common';
 
@@ -33,11 +33,19 @@ export class WorkerService {
     return this;
   }
 
+  // 分配一个可用 worker
+  async dispatchWorker(): Promise<WorkerPressure> {
+    const target = sortBy([...this.workers.values()], (item) => {
+      return item.running / item.maxConcurrent;
+    }).find((item) => item.running / item.maxConcurrent < 0.8);
+
+    if (target) {
+      return target;
+    }
+  }
+
   // 获取集群状态
   async getClusterPressure() {
-    // 临时刷新一下
-    await this.refreshWorkerList();
-
     const workerIps = [...this.workers.keys()];
 
     await Promise.map(
@@ -70,7 +78,7 @@ export class WorkerService {
     };
   }
 
-  // 获取工人列表
+  // 更新工人列表
   async refreshWorkerList(): Promise<void> {
     const response = await this.coreApiClient.listNamespacedPod(
       this.configService.get('KUBE_NAMESPACE'),
