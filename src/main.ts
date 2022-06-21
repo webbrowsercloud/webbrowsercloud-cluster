@@ -41,11 +41,8 @@ async function bootstrap() {
 
           if (!worker) {
             socket.destroy();
-            console.log('browserless busy!');
             return 'browserless busy!';
           }
-
-          console.log(worker);
 
           proxy.ws(req, socket, head, {
             target: `ws://${worker.ip}:3000`,
