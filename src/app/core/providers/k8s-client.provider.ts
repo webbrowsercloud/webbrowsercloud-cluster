@@ -6,7 +6,7 @@ export const K8sClientProvider = {
   provide: K8S_CLIENT,
   useFactory: (): CoreV1Api => {
     const kubeClient = new KubeConfig();
-    kubeClient.loadFromCluster();
+    kubeClient.loadFromDefault();
 
     return kubeClient.makeApiClient(CoreV1Api);
   },

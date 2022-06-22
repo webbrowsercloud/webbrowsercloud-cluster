@@ -81,7 +81,12 @@ export class WorkerService {
   // 更新工人列表
   async refreshWorkerList(): Promise<void> {
     const response = await this.coreApiClient.listNamespacedPod(
-      this.configService.get('KUBE_NAMESPACE'),
+      this.configService.get('KUBE_NAMESPACE', 'default'),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      this.configService.get('WORKER_SELECTOR', 'component=worker'),
     );
 
     const pods = response.body.items.filter(
