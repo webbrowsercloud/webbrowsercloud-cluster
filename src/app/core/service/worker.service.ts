@@ -4,7 +4,7 @@ import { Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { K8S_CLIENT } from '../providers/k8s-client.provider';
 import { Promise } from 'bluebird';
-import { meanBy, omit, sumBy, minBy, sortBy } from 'lodash';
+import { meanBy, omit, sumBy, sortBy } from 'lodash';
 import axios from 'axios';
 import { Logger } from '@nest-boot/common';
 

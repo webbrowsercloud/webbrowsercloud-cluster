@@ -1,5 +1,7 @@
 # 构建 docker 镜像并推到 docker hub
 
+# 请提前在 docker hub 创建名为 webbrowsercloud-cluster 的仓库
+
 name: Build docker image
 on:
   release:
