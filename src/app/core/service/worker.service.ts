@@ -7,6 +7,14 @@ import { Promise } from 'bluebird';
 import { meanBy, omit, sumBy, sortBy } from 'lodash';
 import axios from 'axios';
 import { Logger } from '@nest-boot/common';
+import { InjectMetric } from '@willsoto/nestjs-prometheus';
+import { Gauge } from 'prom-client';
+import {
+  BROWSER_RUNNING,
+  BROWSER_QUEUED,
+  AVERAGE_CPU,
+  AVERAGE_MEMORY,
+} from '../providers/browser-worker-metrics.provider';
 
 export type WorkerPressure = {
   ip: string;
@@ -26,6 +34,10 @@ export class WorkerService {
   private workers: Map<string, WorkerPressure> = new Map();
 
   constructor(
+    @InjectMetric(BROWSER_RUNNING) public browserRunningGauge: Gauge<string>,
+    @InjectMetric(BROWSER_QUEUED) public browserQueuedGauge: Gauge<string>,
+    @InjectMetric(AVERAGE_CPU) public averageCpuGauge: Gauge<string>,
+    @InjectMetric(AVERAGE_MEMORY) public averageMemoryGauge: Gauge<string>,
     @Inject(K8S_CLIENT) private readonly coreApiClient: CoreV1Api,
     private readonly configService: ConfigService,
     private readonly logger: Logger,
@@ -64,7 +76,7 @@ export class WorkerService {
 
     const workerPressures = [...this.workers.values()];
 
-    return {
+    const result = {
       date: new Date().getTime(),
       running: sumBy(workerPressures, 'running'),
       queued: sumBy(workerPressures, 'queued'),
@@ -76,6 +88,13 @@ export class WorkerService {
       memory: Math.ceil(meanBy(workerPressures, 'memory')),
       workerPressures,
     };
+
+    this.browserRunningGauge.set(result.running);
+    this.browserQueuedGauge.set(result.queued);
+    this.averageCpuGauge.set(result.cpu);
+    this.averageMemoryGauge.set(result.memory);
+
+    return result;
   }
 
   // 更新工人列表
@@ -109,6 +128,9 @@ export class WorkerService {
         concurrency: 5,
       },
     );
+
+    // 更新指标
+    await this.getClusterPressure();
   }
 
   // 获取工人运行状态
