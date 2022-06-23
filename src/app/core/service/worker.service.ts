@@ -4,7 +4,7 @@ import { Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { K8S_CLIENT } from '../providers/k8s-client.provider';
 import { Promise } from 'bluebird';
-import { meanBy, omit, sumBy, sortBy } from 'lodash';
+import { meanBy, omit, sumBy, sortBy, floor } from 'lodash';
 import axios from 'axios';
 import { Logger } from '@nest-boot/common';
 import { InjectMetric } from '@willsoto/nestjs-prometheus';
@@ -14,6 +14,9 @@ import {
   BROWSER_QUEUED,
   AVERAGE_CPU,
   AVERAGE_MEMORY,
+  BROWSER_CONCURRENT_AVG_UTILIZATION,
+  BROWSER_CONCURRENT_MAX_UTILIZATION,
+  BROWSER_CONCURRENT_MIN_UTILIZATION,
 } from '../providers/browser-worker-metrics.provider';
 
 export type WorkerPressure = {
@@ -38,6 +41,12 @@ export class WorkerService {
     @InjectMetric(BROWSER_QUEUED) public browserQueuedGauge: Gauge<string>,
     @InjectMetric(AVERAGE_CPU) public averageCpuGauge: Gauge<string>,
     @InjectMetric(AVERAGE_MEMORY) public averageMemoryGauge: Gauge<string>,
+    @InjectMetric(BROWSER_CONCURRENT_AVG_UTILIZATION)
+    public browserConcurrentAvgUtilization: Gauge<string>,
+    @InjectMetric(BROWSER_CONCURRENT_MAX_UTILIZATION)
+    public browserConcurrentMaxUtilization: Gauge<string>,
+    @InjectMetric(BROWSER_CONCURRENT_MIN_UTILIZATION)
+    public browserConcurrentMinUtilization: Gauge<string>,
     @Inject(K8S_CLIENT) private readonly coreApiClient: CoreV1Api,
     private readonly configService: ConfigService,
     private readonly logger: Logger,
@@ -93,6 +102,22 @@ export class WorkerService {
     this.browserQueuedGauge.set(result.queued);
     this.averageCpuGauge.set(result.cpu);
     this.averageMemoryGauge.set(result.memory);
+
+    const browserConcurrentUtilizations = workerPressures.map(
+      ({ maxConcurrent, running }) => floor((running * 100) / maxConcurrent, 2),
+    );
+
+    this.browserConcurrentAvgUtilization.set(
+      floor(meanBy(browserConcurrentUtilizations), 2),
+    );
+
+    this.browserConcurrentMaxUtilization.set(
+      Math.max(...browserConcurrentUtilizations),
+    );
+
+    this.browserConcurrentMinUtilization.set(
+      Math.min(...browserConcurrentUtilizations),
+    );
 
     return result;
   }

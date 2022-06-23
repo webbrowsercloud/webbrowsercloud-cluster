@@ -10,6 +10,9 @@ import {
   BrowserQueuedProvider,
   AverageCpuProvider,
   AverageMemoryProvider,
+  BrowserConcurrentAvgUtilizationProvider,
+  BrowserConcurrentMaxUtilizationProvider,
+  BrowserConcurrentMinUtilizationProvider,
 } from '../core/providers/browser-worker-metrics.provider';
 
 const providers = [
@@ -18,6 +21,9 @@ const providers = [
   BrowserQueuedProvider,
   AverageCpuProvider,
   AverageMemoryProvider,
+  BrowserConcurrentAvgUtilizationProvider,
+  BrowserConcurrentMaxUtilizationProvider,
+  BrowserConcurrentMinUtilizationProvider,
 ];
 
 const controllers = [WorkerController];
