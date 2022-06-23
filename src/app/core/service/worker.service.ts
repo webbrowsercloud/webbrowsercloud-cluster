@@ -30,7 +30,6 @@ export type WorkerPressure = {
   maxQueued: number;
   cpu: number;
   memory: number;
-  token?: string;
 };
 
 @Injectable()
@@ -68,7 +67,7 @@ export class WorkerService {
 
   // 获取 worker 列表和整体集群状态，
   async getClusterPressure(): Promise<
-    Omit<WorkerPressure, 'ip' | 'token'> & { workerPressures: WorkerPressure[] }
+    Omit<WorkerPressure, 'ip'> & { workerPressures: WorkerPressure[] }
   > {
     const workerIps = [...this.workers.keys()];
 
@@ -87,11 +86,6 @@ export class WorkerService {
     );
 
     const workerPressures = [...this.workers.values()];
-
-    // 禁止向外暴露 token
-    workerPressures.forEach((item) => {
-      delete item?.token;
-    });
 
     const result = {
       date: new Date().getTime(),
