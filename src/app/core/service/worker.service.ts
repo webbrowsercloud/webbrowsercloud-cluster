@@ -21,7 +21,7 @@ import {
 
 export type WorkerPressure = {
   ip: string;
-  date: Date;
+  date: number;
   isAvailable: boolean;
   queued: number;
   recentlyRejected: number;
@@ -30,6 +30,7 @@ export type WorkerPressure = {
   maxQueued: number;
   cpu: number;
   memory: number;
+  token?: string;
 };
 
 @Injectable()
@@ -65,8 +66,10 @@ export class WorkerService {
     }
   }
 
-  // 获取集群状态
-  async getClusterPressure() {
+  // 获取 worker 列表和整体集群状态，
+  async getClusterPressure(): Promise<
+    Omit<WorkerPressure, 'ip' | 'token'> & { workerPressures: WorkerPressure[] }
+  > {
     const workerIps = [...this.workers.keys()];
 
     await Promise.map(
@@ -84,6 +87,11 @@ export class WorkerService {
     );
 
     const workerPressures = [...this.workers.values()];
+
+    // 禁止向外暴露 token
+    workerPressures.forEach((item) => {
+      delete item?.token;
+    });
 
     const result = {
       date: new Date().getTime(),
@@ -163,10 +171,16 @@ export class WorkerService {
     try {
       return {
         ip,
-        ...omit((await axios.get(`http://${ip}:3000/pressure`)).data.pressure, [
-          'reason',
-          'message',
-        ]),
+        ...omit(
+          (
+            await axios.get(
+              `http://${ip}:3000/pressure/?token=${this.configService.get(
+                'WORKER_TOKEN',
+              )}`,
+            )
+          ).data.pressure,
+          ['reason', 'message'],
+        ),
       } as WorkerPressure;
     } catch (err) {
       this.logger.error('获取 pod 状态失败', { podIp: ip, err });

@@ -7,6 +7,7 @@ import { Socket } from 'net';
 import { WorkerService } from './app/core/service/worker.service';
 import { createProxyServer } from 'http-proxy';
 import { ServerResponse } from 'http';
+import { verifyWsEndpointParams } from './utils/verifyWsEndpointParams';
 
 async function bootstrap() {
   const app = await NestFactory.create(CoreModule);
@@ -43,6 +44,9 @@ async function bootstrap() {
             socket.destroy();
             return 'browserless busy!';
           }
+
+          // 处理 url 参数，删除 --user-data-dir 等参数对数据挂载的影响
+          req.url = verifyWsEndpointParams(req.url, process.env?.WORKER_TOKEN);
 
           proxy.ws(req, socket, head, {
             target: `ws://${worker.ip}:3000`,
