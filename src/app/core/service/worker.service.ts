@@ -169,7 +169,7 @@ export class WorkerService {
           (
             await axios.get(
               `http://${ip}:3000/pressure/?token=${this.configService.get(
-                'WORKER_TOKEN',
+                'TOKEN',
               )}`,
             )
           ).data.pressure,
