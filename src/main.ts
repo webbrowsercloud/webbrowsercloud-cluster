@@ -7,7 +7,7 @@ import { Socket } from 'net';
 import { WorkerService } from './app/core/service/worker.service';
 import { createProxyServer } from 'http-proxy';
 import { ServerResponse } from 'http';
-import { verifyWsEndpointParams } from './utils/verifyWsEndpointParams';
+import { Logger } from 'nestjs-pino';
 
 async function bootstrap() {
   const app = await NestFactory.create(CoreModule);
@@ -37,22 +37,26 @@ async function bootstrap() {
       'upgrade',
       asyncWsHandler(
         async (req: IncomingMessage, socket: Socket, head: Buffer) => {
-          // 分配一个可用的浏览器入口
-          const worker = await workerService.dispatchWorker();
+          try {
+            // 分配一个可用的浏览器入口
+            const worker = await workerService.dispatchWorker();
 
-          if (!worker) {
+            if (!worker) {
+              throw new Error('browserless busy!');
+            }
+
+            // 处理 url 参数，删除 --user-data-dir 等参数对数据挂载的影响
+            req.url = workerService.verifyWsEndpointParams(req.url);
+
+            proxy.ws(req, socket, head, {
+              target: `ws://${worker.ip}:3000`,
+              changeOrigin: true,
+              toProxy: true,
+            });
+          } catch (err) {
+            app.get(Logger).error('Connect failed!', { stack: err?.stack });
             socket.destroy();
-            return 'browserless busy!';
           }
-
-          // 处理 url 参数，删除 --user-data-dir 等参数对数据挂载的影响
-          req.url = verifyWsEndpointParams(req.url, process.env?.TOKEN);
-
-          proxy.ws(req, socket, head, {
-            target: `ws://${worker.ip}:3000`,
-            changeOrigin: true,
-            toProxy: true,
-          });
         },
       ),
     );

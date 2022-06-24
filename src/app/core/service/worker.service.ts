@@ -6,9 +6,10 @@ import { K8S_CLIENT } from '../providers/k8s-client.provider';
 import { Promise } from 'bluebird';
 import { meanBy, omit, sumBy, sortBy, floor } from 'lodash';
 import axios from 'axios';
-import { Logger } from '@nest-boot/common';
+import { Logger } from 'nestjs-pino';
 import { InjectMetric } from '@willsoto/nestjs-prometheus';
 import { Gauge } from 'prom-client';
+import { join as pathJoin } from 'path';
 import {
   BROWSER_RUNNING,
   BROWSER_QUEUED,
@@ -63,6 +64,7 @@ export class WorkerService {
     if (target) {
       return target;
     }
+    this.logger.warn('Browserless worker busy!');
   }
 
   // 获取 worker 列表和整体集群状态，
@@ -182,5 +184,45 @@ export class WorkerService {
       this.logger.error('获取 pod 状态失败', { podIp: ip, err });
       throw new Error(err);
     }
+  }
+
+  /**
+   * 验证处理用户传入的 url 参数，删除用户传入的 token、use-data-dir 等
+   * @param querystring
+   * @returns 返回处理过的 url
+   */
+  verifyWsEndpointParams(querystring: string): string {
+    const newUrl = new URL(`https://localhost${querystring}`);
+
+    const token = this.configService.get('TOKEN');
+
+    // 处理 token
+    if (token) {
+      newUrl.searchParams.set('token', token);
+    } else {
+      // 删除用户自己输入的 token
+      newUrl.searchParams.delete('token');
+    }
+
+    // 删除用户传入的 --user-data-dir，并校验用户传入的 --user-data-id
+    newUrl.searchParams.delete('--user-data-dir');
+
+    const userDataId = newUrl.searchParams.get('--user-data-id');
+
+    if (userDataId) {
+      if (!new RegExp(/^[a-z0-9-]+$/).test(userDataId)) {
+        throw new Error('无效用户 id ，仅支持 0~9、a~z、中划线组成的字符串');
+      }
+
+      newUrl.searchParams.set(
+        '--user-data-dir',
+        pathJoin(
+          `${(this.configService.get('USER_DATA_DIR'), '/userdata')}`,
+          userDataId,
+        ),
+      );
+    }
+
+    return newUrl.search;
   }
 }
