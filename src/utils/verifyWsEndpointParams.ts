@@ -10,21 +10,26 @@ export function verifyWsEndpointParams(
   const newUrl = new URL(`https://localhost${urlSearch}`);
 
   // 处理 token
-  newUrl.searchParams.set('token', workerToken);
+  if (workerToken) {
+    newUrl.searchParams.set('token', workerToken);
+  } else {
+    // 删除用户自己输入的 token
+    newUrl.searchParams.delete('token');
+  }
 
-  // 删除用户传入的 --user-data-dir
+  // 删除用户传入的 --user-data-dir，并校验用户传入的 --user-data-id
   newUrl.searchParams.delete('--user-data-dir');
 
-  const useDataId = newUrl.searchParams.get('--user-data-id');
+  const userDataId = newUrl.searchParams.get('--user-data-id');
 
-  if (useDataId) {
-    if (!new RegExp(/^[a-z0-9-]+$/).test(useDataId)) {
+  if (userDataId) {
+    if (!new RegExp(/^[a-z0-9-]+$/).test(userDataId)) {
       throw new Error('Invalid user data id');
     }
 
     newUrl.searchParams.set(
       '--user-data-dir',
-      `/usr/src/app/userdata/temp/${useDataId}`,
+      `/usr/src/app/userdata/temp/${userDataId}`,
     );
   }
 

@@ -162,19 +162,21 @@ export class WorkerService {
 
   // 获取工人运行状态
   async getWorkerPressure(ip: string): Promise<WorkerPressure> {
+    const url = new URL(`http://${ip}:3000/pressure`);
+
+    const token = this.configService.get('TOKEN');
+
+    if (token) {
+      url.searchParams.set('token', token);
+    }
+
     try {
       return {
         ip,
-        ...omit(
-          (
-            await axios.get(
-              `http://${ip}:3000/pressure/?token=${this.configService.get(
-                'TOKEN',
-              )}`,
-            )
-          ).data.pressure,
-          ['reason', 'message'],
-        ),
+        ...omit((await axios.get(url.toString())).data.pressure, [
+          'reason',
+          'message',
+        ]),
       } as WorkerPressure;
     } catch (err) {
       this.logger.error('获取 pod 状态失败', { podIp: ip, err });

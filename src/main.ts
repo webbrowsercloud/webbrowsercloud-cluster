@@ -46,7 +46,7 @@ async function bootstrap() {
           }
 
           // 处理 url 参数，删除 --user-data-dir 等参数对数据挂载的影响
-          req.url = verifyWsEndpointParams(req.url, process.env?.WORKER_TOKEN);
+          req.url = verifyWsEndpointParams(req.url, process.env?.TOKEN);
 
           proxy.ws(req, socket, head, {
             target: `ws://${worker.ip}:3000`,
