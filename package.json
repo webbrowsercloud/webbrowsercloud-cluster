@@ -34,7 +34,8 @@
     "reflect-metadata": "^0.1.13",
     "rimraf": "^3.0.2",
     "rxjs": "^7.2.0",
-    "url": "^0.11.0"
+    "url": "^0.11.0",
+    "uuid": "^8.3.2"
   },
   "devDependencies": {
     "@nestjs/cli": "^8.0.0",
@@ -50,6 +51,7 @@
     "@types/lodash": "^4.14.182",
     "@types/node": "^16.0.0",
     "@types/supertest": "^2.0.11",
+    "@types/uuid": "^8.3.4",
     "@typescript-eslint/eslint-plugin": "^5.0.0",
     "@typescript-eslint/parser": "^5.0.0",
     "commitizen": "^4.2.4",

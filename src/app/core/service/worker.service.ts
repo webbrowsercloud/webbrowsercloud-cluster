@@ -62,6 +62,9 @@ export class WorkerService {
     }).find((item) => item.running / item.maxConcurrent < 0.8);
 
     if (target) {
+      // 更新本地记录
+      this.workers.set(target.ip, { ...target, running: target.running + 1 });
+
       return target;
     }
     this.logger.warn('Browserless worker busy!');
