@@ -54,10 +54,6 @@ async function bootstrap() {
               socket.removeAllListeners();
             });
 
-            socket.on('connect', () => {
-              logger.log('建立 socket 连接成功', { socketId });
-            });
-
             socket.on('error', (error) => {
               logger.error(`建立 socket 连接失败 ${error}\n${error.stack}`, {
                 socketId,
@@ -72,6 +68,8 @@ async function bootstrap() {
               changeOrigin: true,
               toProxy: true,
             });
+
+            logger.log('建立 socket 连接成功', { socketId });
           } catch (err) {
             logger.error('连接失败浏览器失败', { stack: err?.stack });
           }

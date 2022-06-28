@@ -55,11 +55,22 @@ export class WorkerService {
     return this;
   }
 
-  // 分配一个可用 worker
+  /**
+   * 分配一个可用 worker
+   * 条件：cpu 利用率小于 80%、内存利用率小于 80%、并发利用率小于 80%
+   * @returns
+   */
   async dispatchWorker(): Promise<WorkerPressure> {
     const target = sortBy([...this.workers.values()], (item) => {
       return item.running / item.maxConcurrent;
-    }).find((item) => item.running / item.maxConcurrent < 0.8);
+    }).find(
+      (item) =>
+        item.cpu &&
+        item.memory &&
+        item.memory < 80 &&
+        item.cpu < 80 &&
+        item.running / item.maxConcurrent < 0.8,
+    );
 
     if (target) {
       // 更新本地记录
@@ -67,6 +78,7 @@ export class WorkerService {
 
       return target;
     }
+
     this.logger.warn('Browserless worker busy!');
   }
 
@@ -100,7 +112,12 @@ export class WorkerService {
       isAvailable: workerPressures.some((item) => item.isAvailable === true),
       maxConcurrent: sumBy(workerPressures, 'maxConcurrent'),
       maxQueued: sumBy(workerPressures, 'maxQueued'),
-      cpu: Math.ceil(meanBy(workerPressures, 'cpu')),
+      cpu: Math.ceil(
+        meanBy(
+          workerPressures.filter((item) => item.cpu !== null),
+          'cpu',
+        ),
+      ),
       memory: Math.ceil(meanBy(workerPressures, 'memory')),
       workerPressures,
     };
