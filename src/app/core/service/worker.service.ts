@@ -65,8 +65,6 @@ export class WorkerService {
       return item.running / item.maxConcurrent;
     }).find((item) => {
       return (
-        item.cpu !== null &&
-        item.memory !== null &&
         item.memory < 80 &&
         item.cpu < 80 &&
         item.running / item.maxConcurrent < 0.8
