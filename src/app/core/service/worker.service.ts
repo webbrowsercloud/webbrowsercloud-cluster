@@ -63,14 +63,15 @@ export class WorkerService {
   async dispatchWorker(): Promise<WorkerPressure> {
     const target = sortBy([...this.workers.values()], (item) => {
       return item.running / item.maxConcurrent;
-    }).find(
-      (item) =>
-        item.cpu &&
-        item.memory &&
+    }).find((item) => {
+      return (
+        item.cpu !== null &&
+        item.memory !== null &&
         item.memory < 80 &&
         item.cpu < 80 &&
-        item.running / item.maxConcurrent < 0.8,
-    );
+        item.running / item.maxConcurrent < 0.8
+      );
+    });
 
     if (target) {
       // 更新本地记录
