@@ -21,6 +21,7 @@ import {
   RefreshWorkerRecordsQueueConsumer,
   REFRESH_WORKER_RECORDS,
 } from './queues/refresh-worker-records.queue';
+import { UserDataController } from './controllers/userdata.controller';
 
 const providers = [
   K8sClientProvider,
@@ -33,7 +34,7 @@ const providers = [
   BrowserConcurrentMinUtilizationProvider,
 ];
 
-const controllers = [WorkerController];
+const controllers = [WorkerController, UserDataController];
 
 const queues = [RefreshWorkerRecordsQueueConsumer];
 
