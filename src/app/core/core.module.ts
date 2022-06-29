@@ -14,6 +14,7 @@ import {
   BrowserConcurrentMaxUtilizationProvider,
   BrowserConcurrentMinUtilizationProvider,
 } from '../core/providers/browser-worker-metrics.provider';
+import { UserDataController } from './controllers/userdata.controller';
 
 const providers = [
   K8sClientProvider,
@@ -26,7 +27,7 @@ const providers = [
   BrowserConcurrentMinUtilizationProvider,
 ];
 
-const controllers = [WorkerController];
+const controllers = [WorkerController, UserDataController];
 
 const services = [WorkerService];
 
