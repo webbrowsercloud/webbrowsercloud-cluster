@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { K8sClientProvider } from './providers/k8s-client.provider';
 import { LoggerModule } from 'nestjs-pino';
 import { WorkerController } from '../core/controllers/worker.controller';
@@ -14,6 +14,13 @@ import {
   BrowserConcurrentMaxUtilizationProvider,
   BrowserConcurrentMinUtilizationProvider,
 } from '../core/providers/browser-worker-metrics.provider';
+import { BullModule } from '@nestjs/bullmq';
+import { ScheduleModule } from '../schedule';
+import { RedisModule, Redis } from '@nest-boot/redis';
+import {
+  RefreshWorkerRecordsQueueConsumer,
+  REFRESH_WORKER_RECORDS,
+} from './queues/refresh-worker-records.queue';
 
 const providers = [
   K8sClientProvider,
@@ -28,16 +35,43 @@ const providers = [
 
 const controllers = [WorkerController];
 
+const queues = [RefreshWorkerRecordsQueueConsumer];
+
 const services = [WorkerService];
+
+const RedisDynamicModule = RedisModule.registerAsync({
+  inject: [ConfigService],
+  useFactory: (configService: ConfigService) => ({
+    host: configService.get('REDIS_HOST', 'localhost'),
+    port: +configService.get('REDIS_PORT', '6379'),
+    username: configService.get('REDIS_USERNAME'),
+    password: configService.get('REDIS_PASSWORD'),
+    db: +configService.get('REDIS_DB', '0'),
+    maxRetriesPerRequest: null,
+    enableReadyCheck: false,
+  }),
+});
 
 @Module({
   imports: [
     LoggerModule.forRoot(),
     ConfigModule.forRoot({ isGlobal: true, expandVariables: true }),
     PrometheusModule.register(),
+    RedisDynamicModule,
+    BullModule.forRootAsync({
+      inject: [Redis],
+      imports: [RedisDynamicModule],
+      useFactory: (redis: Redis) => ({
+        connection: redis,
+      }),
+    }),
+    BullModule.registerQueue({
+      name: REFRESH_WORKER_RECORDS,
+    }),
+    ScheduleModule,
   ],
   controllers: [...controllers],
-  providers: [...providers, ...services],
-  exports: [...services],
+  providers: [...providers, ...services, ...queues],
+  exports: [...services, ...queues],
 })
 export class CoreModule {}

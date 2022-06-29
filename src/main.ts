@@ -9,6 +9,7 @@ import { createProxyServer } from 'http-proxy';
 import { ServerResponse } from 'http';
 import { Logger } from 'nestjs-pino';
 import { v4 as uuidv4 } from 'uuid';
+import { ConfigService } from '@nestjs/config';
 
 async function bootstrap() {
   const app = await NestFactory.create(CoreModule);
@@ -17,12 +18,11 @@ async function bootstrap() {
     const server = app.getHttpServer();
 
     const workerService = app.get(WorkerService);
+    const configService = app.get(ConfigService);
     const logger = app.get(Logger);
 
     // 刷新一下工人列表
     await workerService.refreshWorkerList();
-
-    setInterval(() => workerService.refreshWorkerList(), 3000);
 
     const proxy = createProxyServer();
 
@@ -30,8 +30,12 @@ async function bootstrap() {
       if (res instanceof ServerResponse) {
         res.writeHead && res.writeHead(500, { 'Content-Type': 'text/plain' });
 
-        console.log(`Issue communicating with Chrome: "${err.message}"`);
+        logger.error(`Issue communicating with Chrome: "${err.message}"`);
         res.end(`Issue communicating with Chrome`);
+      }
+
+      if (res instanceof Socket) {
+        logger.warn('代理连接失败', { socketId: _req.headers?.socketId, err });
       }
     });
 
@@ -44,18 +48,19 @@ async function bootstrap() {
             const worker = await workerService.dispatchWorker();
 
             if (!worker) {
+              socket.destroy();
               throw new Error('browserless busy!');
             }
 
             const socketId = uuidv4();
 
-            socket.once('close', () => {
-              logger.log('socket 连接关闭', { socketId });
+            socket.once('close', (hadError) => {
+              logger.log('socket 连接关闭', { socketId, hadError });
               socket.removeAllListeners();
             });
 
             socket.on('error', (error) => {
-              logger.error(`建立 socket 连接失败 ${error}\n${error.stack}`, {
+              logger.error(`socket 连接错误 ${error}\n${error.stack}`, {
                 socketId,
               });
             });
@@ -63,13 +68,18 @@ async function bootstrap() {
             // 处理 url 参数，删除 --user-data-dir 等参数对数据挂载的影响
             req.url = workerService.verifyWsEndpointParams(req.url);
 
+            req.headers.socketId = socketId;
+
             proxy.ws(req, socket, head, {
-              target: `ws://${worker.ip}:3000`,
+              target: `ws://${worker.ip}:${configService.get(
+                'WORKER_ENDPOINT_PORT',
+                3000,
+              )}`,
               changeOrigin: true,
               toProxy: true,
             });
 
-            logger.log('建立 socket 连接成功', { socketId });
+            logger.log('建立 socket 连接', { socketId, workerIp: worker.ip });
           } catch (err) {
             logger.error('连接失败浏览器失败', { stack: err?.stack });
           }

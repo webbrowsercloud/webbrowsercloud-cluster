@@ -19,6 +19,12 @@ import {
   BROWSER_CONCURRENT_MAX_UTILIZATION,
   BROWSER_CONCURRENT_MIN_UTILIZATION,
 } from '../providers/browser-worker-metrics.provider';
+import { Interval } from '../../schedule';
+import ms from 'ms';
+import { Redis } from '@nest-boot/redis';
+import { Queue } from 'bullmq';
+import { InjectQueue } from '@nestjs/bullmq';
+import { REFRESH_WORKER_RECORDS } from '../queues/refresh-worker-records.queue';
 
 export type WorkerPressure = {
   ip: string;
@@ -35,7 +41,7 @@ export type WorkerPressure = {
 
 @Injectable()
 export class WorkerService {
-  private workers: Map<string, WorkerPressure> = new Map();
+  private readonly WORKER_LIST_REDIS_KEY: string;
 
   constructor(
     @InjectMetric(BROWSER_RUNNING) public browserRunningGauge: Gauge<string>,
@@ -51,8 +57,78 @@ export class WorkerService {
     @Inject(K8S_CLIENT) private readonly coreApiClient: CoreV1Api,
     private readonly configService: ConfigService,
     private readonly logger: Logger,
+    private redis: Redis,
+    @InjectQueue(REFRESH_WORKER_RECORDS)
+    private refreshWorkerRecordsQueue: Queue,
   ) {
+    this.WORKER_LIST_REDIS_KEY = 'worker-indexes';
+
     return this;
+  }
+
+  /**
+   * 从 redis 内读取 worker 列表
+   * @returns
+   */
+  async getWorkerRecords(): Promise<WorkerPressure[]> {
+    try {
+      const workers = await this.redis.hvals('workers');
+
+      const result = [];
+
+      workers.forEach((item) => {
+        const worker = JSON.parse(item);
+
+        // 过滤一遍命名空间，防止 redis 内遗留其他命名空间的 pod，导致窜台
+        if (worker?.namespace === this.configService.get('KUBE_NAMESPACE')) {
+          result.push(omit(worker, 'namespace'));
+        }
+      });
+
+      return result;
+    } catch (err) {
+      this.logger.error('从 redis 读取 worker 列表失败');
+
+      throw err;
+    }
+  }
+
+  /**
+   * 向 redis 内增加一条 worker 记录
+   * @param workerPressure
+   */
+  async addWorkerRecord(workerPressure: WorkerPressure): Promise<void> {
+    try {
+      // 加一条 hset 记录，并添加过期时间
+      await Promise.all([
+        this.redis.hmset(`workers`, {
+          [`${workerPressure.ip}`]: JSON.stringify({
+            ...workerPressure,
+            namespace: this.configService.get('KUBE_NAMESPACE'),
+          }),
+        }),
+
+        // 设置 6 秒过期
+        this.redis.expire('workers', 6),
+      ]);
+    } catch (err) {
+      this.logger.error('新增 worker 记录失败', { ip: workerPressure.ip, err });
+      throw err;
+    }
+  }
+
+  /**
+   * 从 redis 删除一条 worker 记录
+   * @param workerIp
+   */
+  async removeWorkerRecord(workerIp: string): Promise<void> {
+    try {
+      await this.redis.hdel('workers', workerIp);
+
+      this.logger.log('删除 worker 记录成功', { ip: workerIp });
+    } catch (err) {
+      this.logger.error('删除 worker 记录失败', { ip: workerIp });
+    }
   }
 
   /**
@@ -61,7 +137,9 @@ export class WorkerService {
    * @returns
    */
   async dispatchWorker(): Promise<WorkerPressure> {
-    const target = sortBy([...this.workers.values()], (item) => {
+    const workers = await this.getWorkerRecords();
+
+    const target = sortBy(workers, (item) => {
       return item.running / item.maxConcurrent;
     }).find((item) => {
       return (
@@ -72,36 +150,51 @@ export class WorkerService {
     });
 
     if (target) {
-      // 更新本地记录
-      this.workers.set(target.ip, { ...target, running: target.running + 1 });
+      // 更新 redis 内 worker 记录，之后改成 luna 脚本
+      await this.addWorkerRecord({ ...target, running: target.running + 1 });
 
       return target;
     }
-
-    this.logger.warn('Browserless worker busy!');
+    return null;
   }
 
-  // 获取 worker 列表和整体集群状态，
+  /**
+   * 刷新 redis 内的工人节点记录
+   * @param podIps
+   */
+  async refreshRedisWorkerRecord(podIps: string[]): Promise<void> {
+    const workers = await this.getWorkerRecords();
+
+    await Promise.map(
+      workers,
+      async ({ ip }) => {
+        try {
+          // 如果有传 podIp，删除 redis 中不属于 podIps 内多余的 worker 记录
+          if (podIps && !podIps.includes(ip)) {
+            await this.removeWorkerRecord(ip);
+
+            return;
+          }
+
+          const pressure = await this.getWorkerPressure(ip);
+
+          await this.addWorkerRecord(pressure);
+        } catch (err) {
+          await this.removeWorkerRecord(ip);
+        }
+      },
+      { concurrency: 10 },
+    );
+  }
+
+  /**
+   * 获取 worker 列表和整体集群状态
+   * @returns
+   */
   async getClusterPressure(): Promise<
     Omit<WorkerPressure, 'ip'> & { workerPressures: WorkerPressure[] }
   > {
-    const workerIps = [...this.workers.keys()];
-
-    await Promise.map(
-      workerIps,
-      async (ip) => {
-        try {
-          const pressure = await this.getWorkerPressure(ip);
-
-          this.workers.set(ip, pressure);
-        } catch (err) {
-          this.workers.delete(ip);
-        }
-      },
-      { concurrency: 5 },
-    );
-
-    const workerPressures = [...this.workers.values()];
+    const workerPressures = await this.getWorkerRecords();
 
     const result = {
       date: new Date().getTime(),
@@ -145,6 +238,24 @@ export class WorkerService {
     return result;
   }
 
+  // 定时向队列推刷新工人列表的任务
+  @Interval(ms('3s'))
+  async createRefreshWorkerListTask() {
+    try {
+      await this.refreshWorkerRecordsQueue.add(
+        REFRESH_WORKER_RECORDS,
+        {},
+        {
+          jobId: REFRESH_WORKER_RECORDS,
+          removeOnComplete: true,
+          removeOnFail: true,
+        },
+      );
+    } catch (err) {
+      this.logger.error('创建刷新工人列表的任务失败', { err });
+    }
+  }
+
   // 更新工人列表
   async refreshWorkerList(): Promise<void> {
     const response = await this.coreApiClient.listNamespacedPod(
@@ -160,14 +271,16 @@ export class WorkerService {
       (pod) => pod.status.phase === 'Running',
     );
 
-    await Promise.map(
+    const podIps = await Promise.map(
       pods,
       async (pod) => {
         try {
           // 获取当前 pod 运行状况
           const pressure = await this.getWorkerPressure(pod.status.podIP);
 
-          this.workers.set(pod.status.podIP, pressure);
+          await this.addWorkerRecord(pressure);
+
+          return pod.status.podIP;
         } catch (err) {
           //
         }
@@ -177,13 +290,18 @@ export class WorkerService {
       },
     );
 
-    // 更新指标
-    await this.getClusterPressure();
+    // 更新指标，并刷新
+    await this.refreshRedisWorkerRecord(podIps);
   }
 
   // 获取工人运行状态
   async getWorkerPressure(ip: string): Promise<WorkerPressure> {
-    const url = new URL(`http://${ip}:3000/pressure`);
+    const url = new URL(
+      `http://${ip}:${this.configService.get(
+        'WORKER_ENDPOINT_PORT',
+        3000,
+      )}/pressure`,
+    );
 
     const token = this.configService.get('TOKEN');
 
@@ -201,7 +319,7 @@ export class WorkerService {
       } as WorkerPressure;
     } catch (err) {
       this.logger.error('获取 pod 状态失败', { podIp: ip, err });
-      throw new Error(err);
+      throw err;
     }
   }
 
