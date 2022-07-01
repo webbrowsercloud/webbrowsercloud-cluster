@@ -41,7 +41,7 @@ export type WorkerPressure = {
 
 @Injectable()
 export class WorkerService {
-  private readonly WORKER_LIST_REDIS_KEY: string;
+  private readonly WORKERS_REDIS_KEY: string;
 
   constructor(
     @InjectMetric(BROWSER_RUNNING) public browserRunningGauge: Gauge<string>,
@@ -61,7 +61,7 @@ export class WorkerService {
     @InjectQueue(REFRESH_WORKER_RECORDS)
     private refreshWorkerRecordsQueue: Queue,
   ) {
-    this.WORKER_LIST_REDIS_KEY = 'worker-indexes';
+    this.WORKERS_REDIS_KEY = 'workers';
 
     return this;
   }
@@ -72,7 +72,7 @@ export class WorkerService {
    */
   async getWorkerRecords(): Promise<WorkerPressure[]> {
     try {
-      const workers = await this.redis.hvals('workers');
+      const workers = await this.redis.hvals(this.WORKERS_REDIS_KEY);
 
       const result = [];
 
@@ -101,7 +101,7 @@ export class WorkerService {
     try {
       // 加一条 hset 记录，并添加过期时间
       await Promise.all([
-        this.redis.hmset(`workers`, {
+        this.redis.hmset(this.WORKERS_REDIS_KEY, {
           [`${workerPressure.ip}`]: JSON.stringify({
             ...workerPressure,
             namespace: this.configService.get('KUBE_NAMESPACE'),
@@ -109,7 +109,7 @@ export class WorkerService {
         }),
 
         // 设置 6 秒过期
-        this.redis.expire('workers', 6),
+        this.redis.expire(this.WORKERS_REDIS_KEY, 6),
       ]);
     } catch (err) {
       this.logger.error('新增 worker 记录失败', { ip: workerPressure.ip, err });
@@ -123,7 +123,7 @@ export class WorkerService {
    */
   async removeWorkerRecord(workerIp: string): Promise<void> {
     try {
-      await this.redis.hdel('workers', workerIp);
+      await this.redis.hdel(this.WORKERS_REDIS_KEY, workerIp);
 
       this.logger.log('删除 worker 记录成功', { ip: workerIp });
     } catch (err) {
@@ -133,21 +133,17 @@ export class WorkerService {
 
   /**
    * 分配一个可用 worker
-   * 条件：cpu 利用率小于 80%、内存利用率小于 80%、并发利用率小于 80%
    * @returns
    */
   async dispatchWorker(): Promise<WorkerPressure> {
     const workers = await this.getWorkerRecords();
 
+    // 根据负载升序排序，取负载最低的一个
     const target = sortBy(workers, (item) => {
-      return item.running / item.maxConcurrent;
-    }).find((item) => {
       return (
-        item.memory < 80 &&
-        item.cpu < 80 &&
-        item.running / item.maxConcurrent < 0.8
+        (item.running + item.queued) / (item.maxConcurrent + item.maxQueued)
       );
-    });
+    }).find((item) => item.isAvailable);
 
     if (target) {
       // 更新 redis 内 worker 记录，之后改成 luna 脚本
