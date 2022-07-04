@@ -25,6 +25,11 @@ import { Redis } from '@nest-boot/redis';
 import { Queue } from 'bullmq';
 import { InjectQueue } from '@nestjs/bullmq';
 import { REFRESH_WORKER_RECORDS } from '../queues/refresh-worker-records.queue';
+import {
+  AuthorizedError,
+  EmptyWorkerError,
+  GatewayBusyError,
+} from '../../../utils/asyncWsHandler';
 
 export type WorkerPressure = {
   ip: string;
@@ -138,6 +143,11 @@ export class WorkerService {
   async dispatchWorker(): Promise<WorkerPressure> {
     const workers = await this.getWorkerRecords();
 
+    if (workers.length === 0) {
+      this.logger.error('empty workers');
+      throw new EmptyWorkerError('empty workers');
+    }
+
     // 根据负载升序排序，取负载最低的一个
     const target = sortBy(workers, (item) => {
       return (
@@ -151,7 +161,9 @@ export class WorkerService {
 
       return target;
     }
-    return null;
+
+    this.logger.warn('browser busy');
+    throw new GatewayBusyError('browser busy!');
   }
 
   /**
@@ -327,14 +339,16 @@ export class WorkerService {
   verifyWsEndpointParams(querystring: string): string {
     const newUrl = new URL(`https://localhost${querystring}`);
 
-    const token = this.configService.get('TOKEN');
+    const presetToken = this.configService.get('TOKEN');
 
-    // 处理 token
-    if (token) {
-      newUrl.searchParams.set('token', token);
-    } else {
-      // 删除用户自己输入的 token
-      newUrl.searchParams.delete('token');
+    const inputToken = newUrl.searchParams.get('token');
+
+    if (presetToken) {
+      // 对比用户传入的 token 和环境变量内记录的 token
+      if (inputToken !== String(presetToken)) {
+        console.log(inputToken, presetToken);
+        throw new AuthorizedError('无效 apiToken');
+      }
     }
 
     // 删除用户传入的 --user-data-dir，并校验用户传入的 --user-data-id

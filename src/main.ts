@@ -44,20 +44,7 @@ async function bootstrap() {
       asyncWsHandler(
         async (req: IncomingMessage, socket: Socket, head: Buffer) => {
           try {
-            // 分配一个可用的浏览器入口
-            const worker = await workerService.dispatchWorker();
-
-            if (!worker) {
-              socket.destroy();
-              throw new Error('browserless busy!');
-            }
-
             const socketId = uuidv4();
-
-            socket.once('close', (hadError) => {
-              logger.log('socket 连接关闭', { socketId, hadError });
-              socket.removeAllListeners();
-            });
 
             socket.on('error', (error) => {
               logger.error(`socket 连接错误 ${error}\n${error.stack}`, {
@@ -65,8 +52,16 @@ async function bootstrap() {
               });
             });
 
-            // 处理 url 参数，删除 --user-data-dir 等参数对数据挂载的影响
+            // 处理 url 参数、校验用户 token、删除 --user-data-dir 等参数对数据挂载的影响
             req.url = workerService.verifyWsEndpointParams(req.url);
+
+            // 分配一个可用的浏览器入口
+            const worker = await workerService.dispatchWorker();
+
+            socket.once('close', (hadError) => {
+              logger.log('socket 连接关闭', { socketId, hadError });
+              socket.removeAllListeners();
+            });
 
             req.headers.socketId = socketId;
 
@@ -82,6 +77,7 @@ async function bootstrap() {
             logger.log('建立 socket 连接', { socketId, workerIp: worker.ip });
           } catch (err) {
             logger.error('连接失败浏览器失败', { stack: err?.stack });
+            throw err;
           }
         },
       ),
