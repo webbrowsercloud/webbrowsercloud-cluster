@@ -156,8 +156,21 @@ export class WorkerService {
     }).find((item) => item.isAvailable);
 
     if (target) {
-      // 更新 redis 内 worker 记录，之后改成 luna 脚本
-      await this.addWorkerRecord({ ...target, running: target.running + 1 });
+      // 更新 redis 内 worker 记录
+      try {
+        await this.redis.eval(
+          `
+          local json = redis.call('hget', '${this.WORKERS_REDIS_KEY}', '${target.ip}')
+          local obj = cjson.decode(json)
+          obj.running = obj.running + 1
+          redis.call('hset', '${this.WORKERS_REDIS_KEY}', '${target.ip}', cjson.encode(obj))
+          return 'ok'
+        `,
+          0,
+        );
+      } catch (err) {
+        this.logger.error('更新 worker 记录失败', err);
+      }
 
       return target;
     }
