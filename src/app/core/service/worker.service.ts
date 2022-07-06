@@ -68,6 +68,17 @@ export class WorkerService {
   ) {
     this.WORKERS_REDIS_KEY = 'workers';
 
+    this.redis.defineCommand('addWorkerRunningCount', {
+      lua: `
+        local json = redis.call('hget', '${this.WORKERS_REDIS_KEY}', KEYS[1])
+        local obj = cjson.decode(json)
+        obj.running = obj.running + 1
+        redis.call('hset', '${this.WORKERS_REDIS_KEY}', KEYS[1], cjson.encode(obj))
+        return 'ok'
+      `,
+      numberOfKeys: 1,
+    });
+
     return this;
   }
 
@@ -158,16 +169,11 @@ export class WorkerService {
     if (target) {
       // 更新 redis 内 worker 记录
       try {
-        await this.redis.eval(
-          `
-          local json = redis.call('hget', '${this.WORKERS_REDIS_KEY}', '${target.ip}')
-          local obj = cjson.decode(json)
-          obj.running = obj.running + 1
-          redis.call('hset', '${this.WORKERS_REDIS_KEY}', '${target.ip}', cjson.encode(obj))
-          return 'ok'
-        `,
-          0,
-        );
+        await (
+          this.redis as Redis & {
+            addWorkerRunningCount: (workerIp: string) => Promise<string>;
+          }
+        ).addWorkerRunningCount(target.ip);
       } catch (err) {
         this.logger.error('更新 worker 记录失败', err);
       }
