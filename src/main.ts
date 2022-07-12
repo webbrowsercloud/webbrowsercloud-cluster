@@ -59,7 +59,7 @@ async function bootstrap() {
             const worker = await workerService.dispatchWorker();
 
             socket.once('close', (hadError) => {
-              logger.log('socket 连接关闭', { socketId, hadError });
+              // logger.log('socket 连接关闭', { socketId, hadError });
               socket.removeAllListeners();
             });
 
@@ -74,7 +74,7 @@ async function bootstrap() {
               toProxy: true,
             });
 
-            logger.log('建立 socket 连接', { socketId, workerIp: worker.ip });
+            // logger.log('建立 socket 连接', { socketId, workerIp: worker.ip });
           } catch (err) {
             logger.error('连接失败浏览器失败', { stack: err?.stack });
             throw err;
